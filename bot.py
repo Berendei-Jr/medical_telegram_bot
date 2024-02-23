@@ -10,8 +10,8 @@ from resources import *
 from database_handler import DatabaseHandler
 
 logging.getLogger('httpx').setLevel(logging.WARNING)
-logging.basicConfig(  # filename='bot_log.txt',
-    # filemode='a',
+logging.basicConfig(filename='bot_log.txt',
+    filemode='a',
     level=logging.INFO,
     format="%(levelname)s: %(asctime)s %(message)s")
 
@@ -19,6 +19,7 @@ EXPIRED_CLEANER_JOB: Final = 'expired_users_cleaner'
 BOT_USERNAME: Final = '@karedina_ekaterina_bot'
 BOT_TOKEN: Final = os.environ.get('BOT_TOKEN')
 GROUP_ID: Final = os.environ.get('GROUP_ID')
+CARD_NUMBER: Final = os.environ.get('CARD_NUMBER')
 if not BOT_TOKEN or not GROUP_ID:
     logging.error("env variables aren't set corectly!")
     sys.exit(1)
@@ -29,7 +30,7 @@ waiting_for_approve = {}
 
 # Commands
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(GREETING_MESSAGE)
+    await update.message.reply_text(GREETING_MESSAGE, parse_mode="Markdown")
     await set_cleaning_timer(update, context)
 
 
@@ -52,7 +53,7 @@ async def error(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Internal commands
 async def add_user_to_group(user_id: int, period: int, update: Update, context: ContextTypes.DEFAULT_TYPE):
     link: ChatInviteLink = await context.bot.create_chat_invite_link(GROUP_ID)
-    expire_time = datetime.now() + timedelta(seconds=5*period)
+    expire_time = datetime.now() + timedelta(days=30*period)
     sql_expire_time = expire_time.strftime('%Y-%m-%d %H:%M:%S')
     databaseHandler.add_purchase(user_id, sql_expire_time, period)
     logging.info(f'Invite link was sent to user {user_id}')
@@ -88,6 +89,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, cus
     text = update.message.text.lower() if custom_text == '' else custom_text
     user_id = update.message.from_user.id
     username = update.message.from_user.username
+    username = 'Скрыто' if username is None else username
     logging.info(f'User {user_id}: "{text}"')
 
     if 'ок' in text:
@@ -98,7 +100,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE, cus
                                   callback_data=f'decline {user_id} {username}')]
         ]
         paid_period = waiting_for_approve.get(user_id)
-        await context.bot.send_message(ADMIN_ID, f'Пользователь {update.message.from_user.username} оплатил {paid_period} месяцев подписки',
+        await context.bot.send_message(ADMIN_ID, f'Пользователь {user_id} (Никнейм: {username}) оплатил {paid_period} месяцев подписки',
                                        reply_markup=InlineKeyboardMarkup(keyboard_variants))
         await update.message.reply_text(PAYMENT_CONFIRMATION_REQUEST)
         return
@@ -115,24 +117,24 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
     await query.answer()
     if query.data.startswith('approve'):
         user_id: int = int(query.data.split(' ')[1])
-        username: str = query.data.split(' ')[2]
-        (link, expire_time) = await add_user_to_group(user_id, waiting_for_approve.get(user_id), update, context)
+        paid_period: int = waiting_for_approve.get(user_id)
+        (link, expire_time) = await add_user_to_group(user_id, paid_period, update, context)
         waiting_for_approve.pop(user_id)
         await context.bot.send_message(user_id,
                                        f'{PAYMENT_CONFIRMATION}{link}. Ваша подписка действительна до {expire_time}')
-        await query.edit_message_text(f'Пользователю {username} выдан доступ до {expire_time}')
+        await context.bot.send_message(user_id, RULES, parse_mode='Markdown')
+        await query.edit_message_text(f'Пользователю {user_id} выдан доступ до {expire_time}')
     elif query.data.startswith('decline'):
         user_id: int = int(query.data.split(' ')[1])
-        username: str = query.data.split(' ')[2]
         waiting_for_approve.pop(user_id)
         await context.bot.send_message(user_id, PAYMENT_REJECT)
-        await query.edit_message_text(f'Пользователю {username} отказано в доступе')
+        await query.edit_message_text(f'Пользователю {user_id} отказано в доступе')
     else:
         period: int = int(query.data)
         user_id: int = int(query.from_user.id)
         waiting_for_approve[user_id] = period
         await query.edit_message_text(
-            f'Для оплаты выбранного периода ({PERIODS[period][0]}) переведите на номер {TELEPHONE_NUMBER} {PERIODS[period][1]} рублей. После подтверждения оплаты я вышлю Вам ссылку на добавление в чат.\nВАЖНО! После оплаты отправьте сообщение "ОК"')
+            f'Для оплаты выбранного периода ({PERIODS[period][0]}) переведите на карту {CARD_NUMBER} {PERIODS[period][1]} рублей. После подтверждения оплаты я вышлю Вам ссылку на добавление в чат.\nВАЖНО! После оплаты отправьте сообщение "ОК"')
 
 
 async def remove_expired_users(context: ContextTypes.DEFAULT_TYPE) -> None:
