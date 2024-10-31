@@ -68,7 +68,7 @@ async def remove_user_from_group(user_id: int, context: ContextTypes.DEFAULT_TYP
 
 
 # Responses
-def handle_response(text: str) -> tuple[str, InlineKeyboardMarkup] | tuple[str, None] | tuple[Any, None]:
+def handle_response(text: str):
     if PRICES_COMMAND in text or SUBSCRIPTION_COMMAND in text:
         response: str = 'Доступные на данный момент варианты:'
         keyboard_variants = []
